@@ -26,7 +26,7 @@ flutter run           # na připojeném telefonu
 
 Na telefonu:
 1. Zapněte zapalování, adaptér zapojte do OBD zásuvky (pod volantem).
-2. V aplikaci *Připojit OBD2 adaptér* → vyberte `IOS-Vlink` / `Vgate` ze seznamu.
+2. V aplikaci *Připojit OBD2 adaptér* → vyberte adaptér ze seznamu (OBD adaptéry jsou zvýrazněné nahoře).
    Adaptér se **nepáruje** v nastavení Bluetooth telefonu, připojení dělá aplikace.
 3. Bez auta: *Vyzkoušet demo bez auta*.
 
