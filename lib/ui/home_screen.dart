@@ -25,82 +25,121 @@ class HomeScreen extends StatelessWidget {
     };
     final label = app.t(app.conn.name);
 
-    return ListView(padding: const EdgeInsets.fromLTRB(20, 4, 20, 24), children: [
-      Panel(
-        padding: const EdgeInsets.all(24),
-        child: Column(children: [
-          SizedBox(
-            width: 200,
-            height: 200,
-            child: Stack(alignment: Alignment.center, children: [
-              CustomPaint(size: const Size(200, 200), painter: _RingPainter(ringColor, app.conn == ConnState.on)),
-              if (app.conn == ConnState.connecting)
-                const SizedBox(width: 186, height: 186, child: CircularProgressIndicator(strokeWidth: 6, color: Palette.cyan)),
-              Column(mainAxisSize: MainAxisSize.min, children: [
-                Text(app.t('adapter').toUpperCase(),
-                    style: const TextStyle(fontSize: 12, letterSpacing: 2, color: Palette.muted)),
-                const SizedBox(height: 4),
-                Text(label, style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: ringColor)),
-                const SizedBox(height: 4),
-                Text(app.adapterName ?? 'ELM327 · BLE', style: const TextStyle(fontSize: 12, color: Palette.muted)),
-              ]),
-            ]),
-          ),
-          const SizedBox(height: 20),
-          if (app.error != null) ...[
-            Text(app.t(app.error!), textAlign: TextAlign.center, style: const TextStyle(color: Palette.red)),
-            const SizedBox(height: 12),
-          ],
-          if (app.conn == ConnState.off) ...[
-            PrimaryButton(
-              label: app.t('connect'),
-              icon: Icons.bluetooth,
-              outlined: true,
-              onPressed: () => showModalBottomSheet<void>(
-                context: context,
-                isScrollControlled: true,
-                builder: (_) => AppScope(state: app, child: const _AdapterSheet()),
-              ),
-            ),
-            const SizedBox(height: 10),
-            TextButton(
-              onPressed: () => app.connect(() async => SimTransport()),
-              child: Text(app.t('demo'), style: const TextStyle(color: Palette.muted)),
-            ),
-          ],
-          if (app.conn == ConnState.on) ...[
-            PrimaryButton(
-              label: app.scanning ? app.t('scanning') : app.t('scan'),
-              icon: Icons.search,
-              onPressed: app.scanning
-                  ? null
-                  : () async {
-                      await app.scan();
-                      onScanned();
-                    },
-            ),
-            const SizedBox(height: 10),
-            TextButton(
-              onPressed: app.disconnect,
-              child: Text(app.t('disconnect'), style: const TextStyle(color: Palette.muted)),
-            ),
-          ],
-        ]),
-      ),
-      if (app.conn == ConnState.on) ...[
-        const SizedBox(height: 8),
-        SectionLabel(app.t('vin')),
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+      children: [
         Panel(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(app.vin ?? '—',
-                style: const TextStyle(fontFamily: mono, fontSize: 18, fontWeight: FontWeight.w700, letterSpacing: 1.5)),
-            const SizedBox(height: 8),
-            Text('${app.t('protocol')}: ${app.elm?.protocol ?? '?'} · ${app.elm?.version ?? ''}',
-                style: const TextStyle(color: Palette.muted, fontSize: 13)),
-          ]),
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            children: [
+              SizedBox(
+                width: 200,
+                height: 200,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    CustomPaint(size: const Size(200, 200), painter: _RingPainter(ringColor, app.conn == ConnState.on)),
+                    if (app.conn == ConnState.connecting)
+                      const SizedBox(
+                        width: 186,
+                        height: 186,
+                        child: CircularProgressIndicator(strokeWidth: 6, color: Palette.cyan),
+                      ),
+                    Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          app.t('adapter').toUpperCase(),
+                          style: const TextStyle(fontSize: 12, letterSpacing: 2, color: Palette.muted),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          label,
+                          style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: ringColor),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          app.adapterName ?? 'ELM327 · BLE',
+                          style: const TextStyle(fontSize: 12, color: Palette.muted),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
+              if (app.error != null) ...[
+                Text(
+                  app.t(app.error!),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Palette.red),
+                ),
+                const SizedBox(height: 12),
+              ],
+              if (app.conn == ConnState.off) ...[
+                PrimaryButton(
+                  label: app.t('connect'),
+                  icon: Icons.bluetooth,
+                  outlined: true,
+                  onPressed: () => showModalBottomSheet<void>(
+                    context: context,
+                    isScrollControlled: true,
+                    builder: (_) => AppScope(state: app, child: const _AdapterSheet()),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextButton(
+                  onPressed: () => app.connect(() async => SimTransport()),
+                  child: Text(app.t('demo'), style: const TextStyle(color: Palette.muted)),
+                ),
+              ],
+              if (app.conn == ConnState.on) ...[
+                PrimaryButton(
+                  label: app.scanning ? app.t('scanning') : app.t('scan'),
+                  icon: Icons.search,
+                  onPressed: app.scanning
+                      ? null
+                      : () async {
+                          await app.scan();
+                          onScanned();
+                        },
+                ),
+                const SizedBox(height: 10),
+                TextButton(
+                  onPressed: app.disconnect,
+                  child: Text(app.t('disconnect'), style: const TextStyle(color: Palette.muted)),
+                ),
+              ],
+            ],
+          ),
         ),
+        if (app.conn == ConnState.on) ...[
+          const SizedBox(height: 8),
+          SectionLabel(app.t('vin')),
+          Panel(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  app.vin ?? '—',
+                  style: const TextStyle(
+                    fontFamily: mono,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 1.5,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '${app.t('protocol')}: ${app.elm?.protocol ?? '?'} · ${app.elm?.version ?? ''}',
+                  style: const TextStyle(color: Palette.muted, fontSize: 13),
+                ),
+              ],
+            ),
+          ),
+        ],
       ],
-    ]);
+    );
   }
 }
 
@@ -188,38 +227,49 @@ class _AdapterSheetState extends State<_AdapterSheet> {
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.all(20),
-        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          Text(app.t('pick_adapter'), style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
-          const SizedBox(height: 12),
-          if (_scanning) ...[
-            const LinearProgressIndicator(color: Palette.cyan, backgroundColor: Palette.track),
-            const SizedBox(height: 8),
-            Text(app.t('scanning_ble'), style: const TextStyle(color: Palette.muted)),
-          ],
-          if (!_scanning && _results.isEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              child: Text(app.t('no_adapters'), style: const TextStyle(color: Palette.muted)),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(app.t('pick_adapter'), style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 12),
+            if (_scanning) ...[
+              const LinearProgressIndicator(color: Palette.cyan, backgroundColor: Palette.track),
+              const SizedBox(height: 8),
+              Text(app.t('scanning_ble'), style: const TextStyle(color: Palette.muted)),
+            ],
+            if (!_scanning && _results.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                child: Text(app.t('no_adapters'), style: const TextStyle(color: Palette.muted)),
+              ),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 360),
+              child: ListView(
+                shrinkWrap: true,
+                children: [
+                  for (final r in _results)
+                    ListTile(
+                      leading: Icon(
+                        Icons.bluetooth,
+                        color: looksLikeObdAdapter(r.device.platformName) ? Palette.cyan : Palette.muted,
+                      ),
+                      title: Text(r.device.platformName),
+                      subtitle: Text(
+                        '${r.device.remoteId.str} · ${r.rssi} dBm',
+                        style: const TextStyle(color: Palette.muted, fontSize: 12),
+                      ),
+                      onTap: () {
+                        Navigator.pop(context);
+                        app.connect(() => BleTransport.connect(r.device));
+                      },
+                    ),
+                ],
+              ),
             ),
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxHeight: 360),
-            child: ListView(shrinkWrap: true, children: [
-              for (final r in _results)
-                ListTile(
-                  leading: Icon(Icons.bluetooth,
-                      color: looksLikeObdAdapter(r.device.platformName) ? Palette.cyan : Palette.muted),
-                  title: Text(r.device.platformName),
-                  subtitle: Text('${r.device.remoteId.str} · ${r.rssi} dBm',
-                      style: const TextStyle(color: Palette.muted, fontSize: 12)),
-                  onTap: () {
-                    Navigator.pop(context);
-                    app.connect(() => BleTransport.connect(r.device));
-                  },
-                ),
-            ]),
-          ),
-          if (!_scanning) PrimaryButton(label: app.t('rescan'), outlined: true, onPressed: _scan),
-        ]),
+            if (!_scanning) PrimaryButton(label: app.t('rescan'), outlined: true, onPressed: _scan),
+          ],
+        ),
       ),
     );
   }

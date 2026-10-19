@@ -31,8 +31,7 @@ const knownProfiles = [
 /// Adapter names we highlight in the device list.
 bool looksLikeObdAdapter(String name) {
   final n = name.toLowerCase();
-  return const ['icar', 'vgate', 'obd', 'elm', 'vlink', 'v-link', 'ios-vlink', 'android-vlink']
-      .any(n.contains);
+  return const ['icar', 'vgate', 'obd', 'elm', 'vlink', 'v-link', 'ios-vlink', 'android-vlink'].any(n.contains);
 }
 
 class BleTransport implements ObdTransport {

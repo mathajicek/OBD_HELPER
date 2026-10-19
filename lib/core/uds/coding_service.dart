@@ -11,13 +11,7 @@ class EcuIdentity {
   /// DID → decoded text, e.g. 0xF187 → "5Q0907530".
   final Map<int, String> values;
 
-  static const dids = {
-    0xF190: 'id_vin',
-    0xF187: 'id_part',
-    0xF189: 'id_sw',
-    0xF191: 'id_hw',
-    0xF197: 'id_system',
-  };
+  static const dids = {0xF190: 'id_vin', 0xF187: 'id_part', 0xF189: 'id_sw', 0xF191: 'id_hw', 0xF197: 'id_system'};
 }
 
 class CodingBackup {
@@ -30,11 +24,15 @@ class CodingBackup {
 
   String get hex => bytesToHex(bytes);
 
-  Map<String, dynamic> toJson() =>
-      {'ecu': ecuKey, 'tx': tx, 'did': did, 'hex': hex, 'time': time.toIso8601String()};
+  Map<String, dynamic> toJson() => {'ecu': ecuKey, 'tx': tx, 'did': did, 'hex': hex, 'time': time.toIso8601String()};
 
   static CodingBackup fromJson(Map<String, dynamic> j) => CodingBackup(
-      j['ecu'] as String, j['tx'] as int, j['did'] as int, hexToBytes(j['hex'] as String), DateTime.parse(j['time'] as String));
+    j['ecu'] as String,
+    j['tx'] as int,
+    j['did'] as int,
+    hexToBytes(j['hex'] as String),
+    DateTime.parse(j['time'] as String),
+  );
 }
 
 abstract class BackupStore {
@@ -141,8 +139,7 @@ class CodingService {
         throw CodingException('coding_verify_failed');
       }
     } on UdsNegativeResponse catch (e) {
-      throw CodingException(
-          e.nrc == 0x33 ? 'coding_security' : 'coding_write_failed', e.name);
+      throw CodingException(e.nrc == 0x33 ? 'coding_security' : 'coding_write_failed', e.name);
     } finally {
       try {
         await uds.session(0x01);
