@@ -33,12 +33,20 @@ const _misfireEn = [
 ];
 
 DtcInfo _cyl(int n) => DtcInfo(
-      Severity.high,
-      DtcText('Vynechávání zapalování ve válci $n', 'Řídicí jednotka zjistila vynechávání zapalování ve válci $n.',
-          const ['Zapalovací svíčka', 'Zapalovací cívka', 'Vstřikovač', 'Komprese'], _misfireCs),
-      DtcText('Cylinder $n Misfire Detected', 'The engine control unit detected misfires in cylinder $n.',
-          const ['Spark plug', 'Ignition coil', 'Fuel injector', 'Compression'], _misfireEn),
-    );
+  Severity.high,
+  DtcText('Vynechávání zapalování ve válci $n', 'Řídicí jednotka zjistila vynechávání zapalování ve válci $n.', const [
+    'Zapalovací svíčka',
+    'Zapalovací cívka',
+    'Vstřikovač',
+    'Komprese',
+  ], _misfireCs),
+  DtcText('Cylinder $n Misfire Detected', 'The engine control unit detected misfires in cylinder $n.', const [
+    'Spark plug',
+    'Ignition coil',
+    'Fuel injector',
+    'Compression',
+  ], _misfireEn),
+);
 
 final Map<String, DtcInfo> dtcDatabase = {
   'P0300': const DtcInfo(
@@ -103,7 +111,10 @@ final Map<String, DtcInfo> dtcDatabase = {
       [
         ('Nejdřív vyřešte ostatní kódy', 'Vynechávání zapalování a chudá směs často způsobují P0420.'),
         ('Zkontrolujte výfuk', 'Hledejte netěsnosti před a za katalyzátorem.'),
-        ('Porovnejte lambda sondy', 'Přední sonda má kmitat, zadní má být klidná. Podobný průběh znamená slabý katalyzátor.'),
+        (
+          'Porovnejte lambda sondy',
+          'Přední sonda má kmitat, zadní má být klidná. Podobný průběh znamená slabý katalyzátor.',
+        ),
         ('Zvažte výměnu katalyzátoru', 'Pokud je vše ostatní v pořádku, katalyzátor je nejspíš na konci životnosti.'),
       ],
     ),
@@ -114,7 +125,10 @@ final Map<String, DtcInfo> dtcDatabase = {
       [
         ('Fix other codes first', 'Misfires and lean mixture often cause P0420.'),
         ('Inspect the exhaust', 'Look for leaks before and after the converter.'),
-        ('Compare O2 sensors', 'The front sensor should switch, the rear should stay steady. Similar signals mean a weak converter.'),
+        (
+          'Compare O2 sensors',
+          'The front sensor should switch, the rear should stay steady. Similar signals mean a weak converter.',
+        ),
         ('Consider replacing the converter', 'If everything else checks out, the converter is likely worn out.'),
       ],
     ),

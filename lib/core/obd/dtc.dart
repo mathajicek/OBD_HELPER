@@ -35,12 +35,65 @@ List<String> parseDtcMessages(List<List<int>> messages, int responseSid, {requir
 enum DtcKind { stored, pending, permanent }
 
 class Dtc {
-  const Dtc(this.code, this.kind);
+  const Dtc(this.code, this.kind, {this.source, this.failureType, this.status});
+
+  /// SAE form, e.g. `P0300`.
   final String code;
   final DtcKind kind;
 
+  /// CAN id / address of the unit that reported it.
+  final int? source;
+
+  /// UDS failure type byte (third DTC byte), when read over UDS.
+  final int? failureType;
+
+  /// UDS status byte (ISO 14229 bit field), when read over UDS.
+  final int? status;
+
+  /// Code as shown to the user, with the UDS failure type when known.
+  String get display =>
+      failureType == null ? code : '$code-${failureType!.toRadixString(16).padLeft(2, '0').toUpperCase()}';
+
   @override
-  bool operator ==(Object other) => other is Dtc && other.code == code && other.kind == kind;
+  bool operator ==(Object other) =>
+      other is Dtc &&
+      other.code == code &&
+      other.kind == kind &&
+      other.failureType == failureType &&
+      other.source == source;
   @override
-  int get hashCode => Object.hash(code, kind);
+  int get hashCode => Object.hash(code, kind, failureType, source);
+}
+
+/// Parses a UDS `59 02 <availability mask> (DTC_hi DTC_mid FTB status)*` reply.
+List<Dtc> parseUdsDtcs(List<int> data, {int? source}) {
+  if (data.length < 3 || data[0] != 0x59) return const [];
+  final out = <Dtc>[];
+  for (var i = 3; i + 3 < data.length; i += 4) {
+    final status = data[i + 3];
+    if (data[i] == 0 && data[i + 1] == 0 && data[i + 2] == 0) continue;
+    // Active = test failed now, pending, or confirmed.
+    if (status & 0x0D == 0) continue;
+    out.add(
+      Dtc(
+        decodeDtc(data[i], data[i + 1]),
+        status & 0x08 != 0 ? DtcKind.stored : DtcKind.pending,
+        source: source,
+        failureType: data[i + 2],
+        status: status,
+      ),
+    );
+  }
+  return out;
+}
+
+/// Parses a KWP2000 `58 <count> (DTC_hi DTC_lo status)*` reply.
+List<Dtc> parseKwpDtcs(List<int> data, {int? source}) {
+  if (data.length < 2 || data[0] != 0x58) return const [];
+  final out = <Dtc>[];
+  for (var i = 2; i + 2 < data.length; i += 3) {
+    if (data[i] == 0 && data[i + 1] == 0) continue;
+    out.add(Dtc(decodeDtc(data[i], data[i + 1]), DtcKind.stored, source: source, status: data[i + 2]));
+  }
+  return out;
 }

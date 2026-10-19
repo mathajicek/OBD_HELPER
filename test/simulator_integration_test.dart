@@ -7,6 +7,8 @@ import 'package:obd_pulse/core/obd/pids.dart';
 import 'package:obd_pulse/core/transport/sim_transport.dart';
 import 'package:obd_pulse/core/uds/coding_service.dart';
 import 'package:obd_pulse/core/uds/uds_client.dart';
+import 'package:obd_pulse/core/vehicle/module_scanner.dart';
+import 'package:obd_pulse/core/vehicle/profiles.dart';
 
 /// End-to-end tests against the simulated Vgate iCar Pro.
 void main() {
@@ -32,10 +34,11 @@ void main() {
       expect(await ObdService(elm).readVin(), SimTransport.vin);
     });
 
-    test('reads stored and pending codes', () async {
+    test('reads stored and pending codes, with two units answering', () async {
       final dtcs = await ObdService(elm).readDtcs();
       expect(dtcs.where((d) => d.kind == DtcKind.stored).map((d) => d.code), ['P0300', 'P0171', 'P0420']);
       expect(dtcs.where((d) => d.kind == DtcKind.pending).map((d) => d.code), ['P0301']);
+      expect(dtcs.every((d) => d.source == 0x7E8), isTrue);
     });
 
     test('clears codes', () async {
@@ -52,14 +55,14 @@ void main() {
 
     test('reads live values in plausible ranges', () async {
       final obd = ObdService(elm);
-      final rpm = await obd.readPid(pidById[0x0C]!);
-      final volts = await obd.readPid(pidById[0x42]!);
+      final rpm = await obd.readPid(pidByKey['0C']!);
+      final volts = await obd.readPid(pidByKey['42']!);
       expect(rpm, inInclusiveRange(700, 3000));
       expect(volts, inInclusiveRange(13.5, 15));
     });
 
     test('unsupported PID returns null', () async {
-      expect(await ObdService(elm).readPid(Pid(0x0A, 'x', 'kPa', 1, 0, 1, (d) => 0)), isNull);
+      expect(await ObdService(elm).readPid(Pid(0x0A, 'x', 'x', 'x', 'kPa', 1, 0, 1, PidGroup.fuel, (d) => 0)), isNull);
     });
   });
 
@@ -68,13 +71,13 @@ void main() {
       final live = LiveDataController(ObdService(elm));
       live.selected
         ..clear()
-        ..addAll([0x0C, 0x05]);
+        ..addAll(['0C', '05']);
       for (var i = 0; i < 3; i++) {
-        await live.sampleOnce(0x0C);
-        await live.sampleOnce(0x05);
+        await live.sampleOnce('0C');
+        await live.sampleOnce('05');
       }
-      expect(live.history[0x0C], hasLength(3));
-      expect(live.latest[0x05], isNotNull);
+      expect(live.history['0C'], hasLength(3));
+      expect(live.latest['05'], isNotNull);
       live.dispose();
     });
   });
@@ -93,7 +96,7 @@ void main() {
 
     test('reads identification', () async {
       final id = await coding.readIdentity(engine);
-      expect(id.values[0xF187], '04E906016DE');
+      expect(id.values[0xF197], 'R4 1.4l TSI');
       expect(id.values[0xF190], SimTransport.vin);
     });
 
@@ -107,7 +110,7 @@ void main() {
       final b = await coding.backup(cluster);
       final next = List.of(b.bytes)..[2] ^= 0x01;
       await coding.writeCoding(cluster, next, backup: b);
-      expect(bytesToHex(sim.coding['714']!), bytesToHex(next));
+      expect(bytesToHex(sim.codingOf(0x714)!), bytesToHex(next));
       expect(await coding.readCoding(cluster), next);
     });
 
@@ -115,18 +118,18 @@ void main() {
       final ecu = knownEcus.firstWhere((e) => e.key == 'ecu_transmission');
       final b = await coding.backup(ecu);
       await coding.writeCoding(ecu, [0x00, 0x23], backup: b);
-      expect(sim.coding['7E1'], [0x00, 0x23]);
+      expect(sim.codingOf(0x7E1), [0x00, 0x23]);
     });
 
     test('security access denial is reported, coding unchanged', () async {
       final b = await coding.backup(gateway);
-      final before = bytesToHex(sim.coding['710']!);
+      final before = bytesToHex(sim.codingOf(0x710)!);
       final next = List.of(b.bytes)..[0] = 0x03;
       await expectLater(
         coding.writeCoding(gateway, next, backup: b),
         throwsA(isA<CodingException>().having((e) => e.key, 'key', 'coding_security')),
       );
-      expect(bytesToHex(sim.coding['710']!), before);
+      expect(bytesToHex(sim.codingOf(0x710)!), before);
     });
 
     test('refuses a write without a matching backup or with wrong length', () async {
@@ -138,6 +141,39 @@ void main() {
     test('adapter returns to OBD mode after coding', () async {
       await coding.readCoding(engine);
       expect(await ObdService(elm).readVin(), SimTransport.vin);
+    });
+  });
+
+  group('Module scan', () {
+    test('VAG profile finds every unit with its fault count', () async {
+      final scanner = ModuleScanner(UdsClient(elm));
+      await scanner.scan(profileById('vag'));
+      final byTx = {for (final m in scanner.found) m.ecu.tx: m};
+      expect(byTx.keys, containsAll([0x7E0, 0x7E1, 0x713, 0x715, 0x710, 0x714]));
+      expect(byTx[0x7E0]!.dtcs.map((d) => d.code), ['P0300', 'P0171', 'P0420', 'P0301']);
+      expect(byTx[0x713]!.dtcs.single.display, 'C0035-29');
+      expect(byTx[0x715]!.dtcs.single.code, 'B1001');
+      expect(byTx[0x710]!.dtcs.single.code, 'U0100');
+      expect(byTx[0x714]!.dtcs, isEmpty);
+      expect(byTx[0x7E0]!.systemName, 'R4 1.4l TSI');
+      expect(scanner.faultCount, 7);
+      // Adapter is back in OBD mode afterwards.
+      expect(await ObdService(elm).readVin(), SimTransport.vin);
+    });
+
+    test('deep scan finds a unit missing from the profile list', () async {
+      final scanner = ModuleScanner(UdsClient(elm));
+      const profile = VehicleProfile('t', 't', 't', [], [SweepRange(0x710, 0x716, 0x6A)]);
+      await scanner.scan(profile, deep: true);
+      expect(scanner.found.map((m) => m.ecu.tx), [0x710, 0x713, 0x714, 0x715]);
+    });
+
+    test('clearing one unit removes its codes', () async {
+      final scanner = ModuleScanner(UdsClient(elm));
+      await scanner.scan(profileById('vag'));
+      final abs = scanner.found.firstWhere((m) => m.ecu.tx == 0x713);
+      await scanner.clear(abs);
+      expect(abs.dtcs, isEmpty);
     });
   });
 }

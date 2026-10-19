@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:obd_pulse/app_state.dart';
 import 'package:obd_pulse/core/transport/sim_transport.dart';
@@ -29,16 +30,42 @@ void main() {
     await tester.runAsync(state.scan);
     await tester.tap(find.text('Kódy'));
     await tester.pumpAndSettle();
-    expect(find.text('P0300'), findsOneWidget);
-    expect(find.text('P0171'), findsOneWidget);
+    expect(find.text('Motor / Engine'), findsOneWidget);
+    expect(find.text('P0300-00'), findsOneWidget);
+    expect(find.text('P0171-00'), findsOneWidget);
 
-    await tester.tap(find.text('P0300'));
+    await tester.tap(find.text('P0300-00'));
     await tester.pumpAndSettle();
-    expect(find.text('Postup řešení'.toUpperCase()), findsOneWidget);
+    expect(find.text('Související živé hodnoty'.toUpperCase()), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('Zkontrolujte svíčky'),
+      300,
+      scrollable: find.byWidgetPredicate((w) => w is Scrollable && w.physics is! NeverScrollableScrollPhysics).last,
+    );
     await tester.tap(find.text('Zkontrolujte svíčky'));
     await tester.pump();
     expect(state.doneSteps, contains('P0300-0'));
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    // Let the in-flight related-value request finish.
+    for (var i = 0; i < 3; i++) {
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 100)));
+      await tester.pump(const Duration(seconds: 20));
+    }
 
     await tester.runAsync(state.disconnect);
+  });
+
+  testWidgets('service tab lists groups and opens a guide', (tester) async {
+    final state = AppState(backupStore: MemoryBackupStore());
+    await state.setProfile('usa');
+    await tester.pumpWidget(ObdPulseApp(state: state));
+    await tester.tap(find.text('Servis'));
+    await tester.pumpAndSettle();
+    expect(find.text('Servis a nastavení'), findsOneWidget);
+    await tester.tap(find.text('Reset servisu oleje / inspekce'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('GM (Chevrolet'), findsOneWidget);
+    expect(find.text('Spustit funkci'), findsNothing);
   });
 }

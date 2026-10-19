@@ -12,10 +12,10 @@ class LiveDataController extends ChangeNotifier {
   final ObdService obd;
   final int historyLength;
 
-  final List<int> selected = List.of(defaultDashboard);
-  final Map<int, List<double>> history = {};
-  final Map<int, double> latest = {};
-  final Set<int> unsupported = {};
+  final List<String> selected = List.of(defaultDashboard);
+  final Map<String, List<double>> history = {};
+  final Map<String, double> latest = {};
+  final Set<String> unsupported = {};
   Set<int> supported = {};
 
   bool _running = false;
@@ -23,15 +23,33 @@ class LiveDataController extends ChangeNotifier {
   int samplesPerSecond = 0;
   int _count = 0;
   Timer? _rateTimer;
+  bool _disposed = false;
+
+  @override
+  void notifyListeners() {
+    // A poll that was in flight may finish after the screen closed.
+    if (!_disposed) super.notifyListeners();
+  }
 
   Future<void> loadSupported() async {
     supported = await obd.supportedPids();
     notifyListeners();
   }
 
-  void toggle(int pid) {
-    selected.contains(pid) ? selected.remove(pid) : selected.add(pid);
+  void toggle(String key) {
+    selected.contains(key) ? selected.remove(key) : selected.add(key);
     notifyListeners();
+  }
+
+  /// Whether the car reported this PID as supported (unknown = assume yes).
+  bool isSupported(Pid p) => supported.isEmpty || supported.contains(p.id);
+
+  /// Polls only [keys] (e.g. values related to a fault code) until [stop].
+  Future<void> watch(List<String> keys) async {
+    selected
+      ..clear()
+      ..addAll(keys.where((k) => pidByKey.containsKey(k)));
+    await start();
   }
 
   Future<void> start() async {
@@ -49,16 +67,17 @@ class LiveDataController extends ChangeNotifier {
         await Future<void>.delayed(const Duration(milliseconds: 300));
         continue;
       }
-      for (final id in pids) {
+      for (final key in pids) {
         if (!_running) break;
-        await sampleOnce(id);
+        await sampleOnce(key);
       }
     }
   }
 
   @visibleForTesting
-  Future<void> sampleOnce(int id) async {
-    final pid = pidById[id]!;
+  Future<void> sampleOnce(String key) async {
+    final pid = pidByKey[key]!;
+    final id = key;
     try {
       final v = await obd.readPid(pid);
       if (v == null) {
@@ -85,6 +104,7 @@ class LiveDataController extends ChangeNotifier {
   @override
   void dispose() {
     stop();
+    _disposed = true;
     super.dispose();
   }
 }
