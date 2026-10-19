@@ -16,12 +16,7 @@ class ObdPulseApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => AppScope(
-        state: state,
-        child: MaterialApp(
-          title: 'OBD Pulse',
-          debugShowCheckedModeBanner: false,
-          theme: buildTheme(),
-          home: const Shell(),
-        ),
-      );
+    state: state,
+    child: MaterialApp(title: 'OBD Pulse', debugShowCheckedModeBanner: false, theme: buildTheme(), home: const Shell()),
+  );
 }

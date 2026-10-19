@@ -5,14 +5,31 @@ import 'dart:math';
 import '../elm/elm327.dart';
 import 'obd_transport.dart';
 
-/// A software Vgate iCar Pro: answers ELM327 AT commands, OBD2 modes
-/// 01/03/04/07/09/0A and UDS 0x10/0x22/0x2E/0x3E, including manual ISO-TP.
+/// One simulated control unit.
+class SimModule {
+  SimModule(this.tx, this.rx, this.name, {List<List<int>>? dtcs, this.coding, this.securityLocked = false})
+    : dtcs = dtcs ?? [];
+
+  final int tx;
+  final int rx;
+  final String name;
+
+  /// UDS fault records: [hi, mid, failureType, status].
+  List<List<int>> dtcs;
+  List<int>? coding;
+  final bool securityLocked;
+  int session = 1;
+}
+
+/// A software Vgate iCar Pro on a VAG-like car: answers ELM327 AT commands
+/// (headers on or off), OBD2 modes 01/03/04/07/09/0A on the functional
+/// address, and UDS 0x10/0x14/0x19/0x22/0x2E/0x3E per control unit,
+/// including manual ISO-TP.
 ///
 /// Used for the in-app demo mode and for tests, so the whole app can be
 /// exercised without a car.
 class SimTransport implements ObdTransport {
-  SimTransport({this.latency = const Duration(milliseconds: 25), Random? random})
-      : _rnd = random ?? Random(7);
+  SimTransport({this.latency = const Duration(milliseconds: 25), Random? random}) : _rnd = random ?? Random(7);
 
   final Duration latency;
   final Random _rnd;
@@ -22,38 +39,66 @@ class SimTransport implements ObdTransport {
   bool _echo = true;
   bool _caf = true;
   bool _responses = true;
+  bool _headers = false;
   String _header = '7DF';
-  final Map<String, int> _session = {};
-
-  /// Stored and pending codes as raw two-byte pairs.
-  List<List<int>> stored = [
-    [0x03, 0x00],
-    [0x01, 0x71],
-    [0x04, 0x20],
-  ];
-  List<List<int>> pending = [
-    [0x03, 0x01],
-  ];
+  int? _rxFilter;
 
   static const vin = 'TMBJJ7NE0K0123456';
 
-  /// Coding per ECU request id; gateway (710) demands security access.
-  final Map<String, List<int>> coding = {
-    '7E0': hexToBytes('0000140C2400000000'),
-    '7E1': hexToBytes('0021'),
-    '710': hexToBytes('0101000200000000000000000000000000000000'),
-    '714': hexToBytes('2D0F0A100021000001000000'),
+  final Map<int, SimModule> modules = {
+    for (final m in [
+      SimModule(
+        0x7E0,
+        0x7E8,
+        'R4 1.4l TSI',
+        dtcs: [
+          [0x03, 0x00, 0x00, 0x2F],
+          [0x01, 0x71, 0x00, 0x2F],
+          [0x04, 0x20, 0x00, 0x2F],
+          [0x03, 0x01, 0x00, 0x24], // pending
+        ],
+        coding: hexToBytes('0000140C2400000000'),
+      ),
+      SimModule(0x7E1, 0x7E9, 'DQ200-MQB', coding: hexToBytes('0021')),
+      SimModule(
+        0x713,
+        0x77D,
+        'ESC MQB',
+        dtcs: [
+          [0x40, 0x35, 0x29, 0x2F], // C0035 wheel speed sensor
+        ],
+      ),
+      SimModule(
+        0x715,
+        0x77F,
+        'Airbag VW20',
+        dtcs: [
+          [0x90, 0x01, 0x13, 0x09], // B1001
+        ],
+      ),
+      SimModule(
+        0x710,
+        0x77A,
+        'GW MQB High',
+        dtcs: [
+          [0xC1, 0x00, 0x00, 0x08], // U0100
+        ],
+        coding: hexToBytes('0101000200000000000000000000000000000000'),
+        securityLocked: true,
+      ),
+      SimModule(0x714, 0x77E, 'KOMBI', coding: hexToBytes('2D0F0A100021000001000000')),
+    ])
+      m.tx: m,
   };
 
-  static const _ident = {
-    '7E0': {0xF187: '04E906016DE', 0xF189: '0004', 0xF191: 'H13', 0xF197: 'R4 1.4l TSI'},
-    '7E1': {0xF187: '0CW300041T', 0xF189: '4517', 0xF197: 'DQ200-MQB'},
-    '710': {0xF187: '5Q0907530AA', 0xF189: '2114', 0xF197: 'GW MQB High'},
-    '714': {0xF187: '5E0920740B', 0xF189: '0612', 0xF197: 'KOMBI'},
-  };
+  /// Convenience accessors used by tests.
+  List<int>? codingOf(int tx) => modules[tx]?.coding;
+
+  static const _ident = {0xF187: 'PART', 0xF189: '0004', 0xF191: 'H13'};
 
   static const supported = [
-    0x04, 0x05, 0x06, 0x07, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11, 0x2F, 0x33, 0x42, 0x46, 0x5C, //
+    0x04, 0x05, 0x06, 0x07, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11, 0x14, 0x15, 0x1F, //
+    0x2F, 0x33, 0x3C, 0x42, 0x46, 0x5C,
   ];
 
   // ISO-TP reassembly for CAF-off requests.
@@ -92,10 +137,13 @@ class SimTransport implements ObdTransport {
     if (cmd.startsWith('AT')) return _at(cmd.substring(2));
     if (!RegExp(r'^[0-9A-F]+$').hasMatch(cmd) || cmd.length.isOdd) return '?';
     final bytes = hexToBytes(cmd);
-    if (!_caf) return _rawFrame(bytes);
-    if (_header == '7DF') return _obd(bytes);
-    final resp = _uds(_header, bytes);
-    return resp == null ? 'NO DATA' : _format(resp);
+    final tx = int.parse(_header, radix: 16);
+    if (!_caf) return _rawFrame(tx, bytes);
+    if (tx == 0x7DF) return _obd(bytes);
+    final m = modules[tx];
+    if (m == null || (_rxFilter != null && _rxFilter != m.rx)) return 'NO DATA';
+    final resp = _uds(m, bytes);
+    return resp == null ? 'NO DATA' : _format(m.rx, resp);
   }
 
   String _at(String c) {
@@ -103,42 +151,54 @@ class SimTransport implements ObdTransport {
       _echo = true;
       _caf = true;
       _responses = true;
+      _headers = false;
       _header = '7DF';
+      _rxFilter = null;
       return '\rELM327 v2.3';
     }
     if (c == 'I') return 'ELM327 v2.3';
     if (c == 'E0') _echo = false;
     if (c == 'E1') _echo = true;
+    if (c == 'H0') _headers = false;
+    if (c == 'H1') _headers = true;
     if (c == 'CAF0') _caf = false;
     if (c == 'CAF1') _caf = true;
     if (c == 'R0') _responses = false;
     if (c == 'R1') _responses = true;
+    if (c == 'AR') _rxFilter = null;
+    if (c.startsWith('CRA')) _rxFilter = c.length > 3 ? int.parse(c.substring(3), radix: 16) : null;
     if (c == 'DPN') return 'A6';
     if (c == 'RV') return '${(13.8 + _rnd.nextDouble() * 0.6).toStringAsFixed(1)}V';
     if (c.startsWith('SH')) _header = c.substring(2);
     return 'OK';
   }
 
+  SimModule get _engine => modules[0x7E0]!;
+
   String _obd(List<int> b) {
     final mode = b[0];
+    final e = _engine;
     switch (mode) {
       case 0x01:
         final pid = b.length > 1 ? b[1] : 0;
-        if (pid % 0x20 == 0) return _format([0x41, pid, ..._mask(pid)]);
+        if (pid % 0x20 == 0) return _format(e.rx, [0x41, pid, ..._mask(pid)]);
         final v = _pidValue(pid);
-        return v == null ? 'NO DATA' : _format([0x41, pid, ...v]);
+        return v == null ? 'NO DATA' : _format(e.rx, [0x41, pid, ...v]);
       case 0x03:
-        return _format([0x43, stored.length, ...stored.expand((e) => e)]);
       case 0x07:
-        return _format([0x47, pending.length, ...pending.expand((e) => e)]);
+        final codes = e.dtcs.where((d) => mode == 0x03 ? d[3] & 0x08 != 0 : d[3] & 0x0C == 0x04).toList();
+        // The transmission answers too, with no codes: two senders in one reply.
+        return [
+          _format(e.rx, [0x40 + mode, codes.length, ...codes.expand((d) => d.take(2))]),
+          _format(0x7E9, [0x40 + mode, 0]),
+        ].join('\r');
       case 0x0A:
-        return _format([0x4A, 0]);
+        return _format(e.rx, [0x4A, 0]);
       case 0x04:
-        stored = [];
-        pending = [];
-        return _format([0x44]);
+        e.dtcs = [];
+        return '${_format(e.rx, [0x44])}\r${_format(0x7E9, [0x44])}';
       case 0x09:
-        if (b.length > 1 && b[1] == 0x02) return _format([0x49, 0x02, 0x01, ...ascii.encode(vin)]);
+        if (b.length > 1 && b[1] == 0x02) return _format(e.rx, [0x49, 0x02, 0x01, ...ascii.encode(vin)]);
         return 'NO DATA';
     }
     return 'NO DATA';
@@ -186,6 +246,15 @@ class SimTransport implements ObdTransport {
         return [clamp((11 + 100) * 1.28)];
       case 0x0E:
         return [clamp((12 + 6 * sin(t / 2) + 64) * 2)];
+      case 0x14:
+        return [clamp((0.45 + 0.4 * sin(t * 3)) * 200), 0x80];
+      case 0x15:
+        return [clamp(0.65 * 200), 0xFF];
+      case 0x1F:
+        return [0, clamp(t)];
+      case 0x3C:
+        final raw = ((620 + 40) * 10).round();
+        return [raw >> 8, raw & 0xFF];
       case 0x42:
         final mv = ((14.0 + _rnd.nextDouble() * 0.3) * 1000).round();
         return [mv >> 8, mv & 0xFF];
@@ -199,63 +268,88 @@ class SimTransport implements ObdTransport {
     return null;
   }
 
-  List<int>? _uds(String ecu, List<int> req) {
-    if (!coding.containsKey(ecu)) return null;
+  List<int>? _uds(SimModule m, List<int> req) {
     final sid = req[0];
     List<int> nrc(int code) => [0x7F, sid, code];
     switch (sid) {
       case 0x10:
-        _session[ecu] = req[1];
+        m.session = req[1];
         return [0x50, req[1], 0x00, 0x32, 0x01, 0xF4];
       case 0x3E:
         return [0x7E, 0x00];
+      case 0x19:
+        if (req.length < 3 || req[1] != 0x02) return nrc(0x12);
+        final mask = req[2];
+        return [0x59, 0x02, 0xFF, ...m.dtcs.where((d) => d[3] & mask != 0).expand((d) => d)];
+      case 0x14:
+        m.dtcs = [];
+        return [0x54];
       case 0x22:
         final did = req[1] << 8 | req[2];
-        if (did == 0x0600) return [0x62, req[1], req[2], ...coding[ecu]!];
+        if (did == 0x0600) return m.coding == null ? nrc(0x31) : [0x62, req[1], req[2], ...m.coding!];
         if (did == 0xF190) return [0x62, req[1], req[2], ...ascii.encode(vin)];
-        final text = _ident[ecu]?[did];
+        if (did == 0xF197) return [0x62, req[1], req[2], ...ascii.encode(m.name)];
+        final text = _ident[did];
         if (text == null) return nrc(0x31);
         return [0x62, req[1], req[2], ...ascii.encode(text)];
       case 0x2E:
         final did = req[1] << 8 | req[2];
-        if (did != 0x0600) return nrc(0x31);
-        if ((_session[ecu] ?? 1) != 0x03) return nrc(0x7F);
-        if (ecu == '710') return nrc(0x33);
+        if (did != 0x0600 || m.coding == null) return nrc(0x31);
+        if (m.session != 0x03) return nrc(0x7F);
+        if (m.securityLocked) return nrc(0x33);
         final data = req.sublist(3);
-        if (data.length != coding[ecu]!.length) return nrc(0x13);
-        coding[ecu] = data;
+        if (data.length != m.coding!.length) return nrc(0x13);
+        m.coding = data;
         return [0x6E, req[1], req[2]];
     }
     return nrc(0x11);
   }
 
   /// Handles a raw CAN frame sent with CAN auto formatting off.
-  String _rawFrame(List<int> f) {
+  String _rawFrame(int tx, List<int> f) {
+    final m = modules[tx];
+    if (m == null) return _responses ? 'NO DATA' : '';
+    String raw(List<int> frame) =>
+        _headers ? '${_id(m.rx)} ${bytesToHex(frame, sep: ' ')}' : bytesToHex(frame, sep: ' ');
     final pci = f[0] >> 4;
     if (pci == 1) {
       _rxLen = (f[0] & 0x0F) << 8 | f[1];
       _rxBuf = f.sublist(2);
-      return _responses ? '30 00 00 55 55 55 55 55' : '';
+      return _responses ? raw([0x30, 0, 0, 0x55, 0x55, 0x55, 0x55, 0x55]) : '';
     }
     if (pci == 2 && _rxBuf != null) {
       _rxBuf!.addAll(f.sublist(1));
       if (_rxBuf!.length < _rxLen) return _responses ? 'NO DATA' : '';
       final req = _rxBuf!.sublist(0, _rxLen);
       _rxBuf = null;
-      final resp = _uds(_header, req);
+      final resp = _uds(m, req);
       if (resp == null || !_responses) return '';
-      return bytesToHex([resp.length, ...resp, ...List.filled(7 - resp.length, 0x55)], sep: ' ');
+      return raw([resp.length, ...resp, ...List.filled(max(0, 7 - resp.length), 0x55)]);
     }
     if (pci == 0) {
-      final resp = _uds(_header, f.sublist(1, 1 + (f[0] & 0x0F)));
+      final resp = _uds(m, f.sublist(1, 1 + (f[0] & 0x0F)));
       if (resp == null) return 'NO DATA';
-      return bytesToHex([resp.length, ...resp, ...List.filled(max(0, 7 - resp.length), 0x55)], sep: ' ');
+      return raw([resp.length, ...resp, ...List.filled(max(0, 7 - resp.length), 0x55)]);
     }
     return 'NO DATA';
   }
 
-  /// Formats a message the way an ELM327 prints it with headers off.
-  static String _format(List<int> msg) {
+  static String _id(int id) => id.toRadixString(16).padLeft(3, '0').toUpperCase();
+
+  /// Formats a message the way an ELM327 prints it (CAN auto formatting on).
+  String _format(int rx, List<int> msg) {
+    if (_headers) {
+      if (msg.length <= 7) return '${_id(rx)} ${bytesToHex([msg.length, ...msg], sep: ' ')}';
+      final lines = <String>[
+        '${_id(rx)} ${bytesToHex([0x10 | (msg.length >> 8), msg.length & 0xFF, ...msg.take(6)], sep: ' ')}',
+      ];
+      var sn = 1;
+      for (var i = 6; i < msg.length; i += 7, sn++) {
+        final chunk = msg.sublist(i, min(i + 7, msg.length));
+        lines.add('${_id(rx)} ${bytesToHex([0x20 | (sn & 0x0F), ...chunk], sep: ' ')}');
+      }
+      return lines.join('\r');
+    }
     if (msg.length <= 7) return bytesToHex(msg, sep: ' ');
     final lines = <String>[msg.length.toRadixString(16).padLeft(3, '0').toUpperCase()];
     lines.add('0: ${bytesToHex(msg.take(6).toList(), sep: ' ')}');
