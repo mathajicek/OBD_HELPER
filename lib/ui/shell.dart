@@ -5,9 +5,9 @@ import '../app_state.dart';
 import '../core/elm/elm327.dart';
 import '../core/vehicle/profiles.dart';
 import 'codes_screen.dart';
-import 'coding_screen.dart';
 import 'home_screen.dart';
 import 'live_screen.dart';
+import 'service_screen.dart';
 import 'theme.dart';
 
 class Shell extends StatefulWidget {
@@ -26,7 +26,7 @@ class _ShellState extends State<Shell> {
       HomeScreen(onScanned: () => setState(() => _tab = 2)),
       const LiveScreen(),
       const CodesScreen(),
-      const CodingScreen(),
+      const ServiceScreen(),
       const SettingsScreen(),
     ];
     return Scaffold(
@@ -48,7 +48,7 @@ class _ShellState extends State<Shell> {
           NavigationDestination(icon: const Icon(Icons.home_outlined), label: app.t('nav_home')),
           NavigationDestination(icon: const Icon(Icons.speed), label: app.t('nav_live')),
           NavigationDestination(icon: const Icon(Icons.list_alt), label: app.t('nav_codes')),
-          NavigationDestination(icon: const Icon(Icons.memory), label: app.t('nav_coding')),
+          NavigationDestination(icon: const Icon(Icons.build_outlined), label: app.t('nav_coding')),
           NavigationDestination(icon: const Icon(Icons.settings_outlined), label: app.t('nav_settings')),
         ],
       ),

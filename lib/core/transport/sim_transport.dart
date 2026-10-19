@@ -7,8 +7,15 @@ import 'obd_transport.dart';
 
 /// One simulated control unit.
 class SimModule {
-  SimModule(this.tx, this.rx, this.name, {List<List<int>>? dtcs, this.coding, this.securityLocked = false})
-    : dtcs = dtcs ?? [];
+  SimModule(
+    this.tx,
+    this.rx,
+    this.name, {
+    List<List<int>>? dtcs,
+    this.coding,
+    this.securityLocked = false,
+    this.routines = const {},
+  }) : dtcs = dtcs ?? [];
 
   final int tx;
   final int rx;
@@ -19,11 +26,20 @@ class SimModule {
   List<int>? coding;
   final bool securityLocked;
   int session = 1;
+
+  /// Routine ids this unit accepts (demo service functions).
+  final Set<int> routines;
+
+  /// Routine id → result polls left before it reports finished.
+  final Map<int, int> running = {};
+
+  /// Routines that ran to completion.
+  final List<int> completed = [];
 }
 
 /// A software Vgate iCar Pro on a VAG-like car: answers ELM327 AT commands
 /// (headers on or off), OBD2 modes 01/03/04/07/09/0A on the functional
-/// address, and UDS 0x10/0x14/0x19/0x22/0x2E/0x3E per control unit,
+/// address, and UDS 0x10/0x14/0x19/0x22/0x2E/0x31/0x3E per control unit,
 /// including manual ISO-TP.
 ///
 /// Used for the in-app demo mode and for tests, so the whole app can be
@@ -58,6 +74,7 @@ class SimTransport implements ObdTransport {
           [0x03, 0x01, 0x00, 0x24], // pending
         ],
         coding: hexToBytes('0000140C2400000000'),
+        routines: {0xDE02},
       ),
       SimModule(0x7E1, 0x7E9, 'DQ200-MQB', coding: hexToBytes('0021')),
       SimModule(
@@ -67,6 +84,7 @@ class SimTransport implements ObdTransport {
         dtcs: [
           [0x40, 0x35, 0x29, 0x2F], // C0035 wheel speed sensor
         ],
+        routines: {0xDE03, 0xDE04},
       ),
       SimModule(
         0x715,
@@ -86,7 +104,7 @@ class SimTransport implements ObdTransport {
         coding: hexToBytes('0101000200000000000000000000000000000000'),
         securityLocked: true,
       ),
-      SimModule(0x714, 0x77E, 'KOMBI', coding: hexToBytes('2D0F0A100021000001000000')),
+      SimModule(0x714, 0x77E, 'KOMBI', coding: hexToBytes('2D0F0A100021000001000000'), routines: {0xDE01}),
     ])
       m.tx: m,
   };
@@ -301,6 +319,27 @@ class SimTransport implements ObdTransport {
         if (data.length != m.coding!.length) return nrc(0x13);
         m.coding = data;
         return [0x6E, req[1], req[2]];
+      case 0x31:
+        if (req.length < 4) return nrc(0x13);
+        final rid = req[2] << 8 | req[3];
+        if (!m.routines.contains(rid)) return nrc(0x31);
+        if (m.session != 0x03) return nrc(0x7F);
+        if (req[1] == 0x01) {
+          m.running[rid] = 2;
+          return [0x71, 0x01, req[2], req[3]];
+        }
+        if (req[1] == 0x03) {
+          final left = m.running[rid];
+          if (left == null) return nrc(0x24);
+          if (left > 0) {
+            m.running[rid] = left - 1;
+            return [0x71, 0x03, req[2], req[3], 0x01];
+          }
+          m.running.remove(rid);
+          m.completed.add(rid);
+          return [0x71, 0x03, req[2], req[3], 0x00];
+        }
+        return nrc(0x12);
     }
     return nrc(0x11);
   }

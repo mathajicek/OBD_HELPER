@@ -55,4 +55,17 @@ void main() {
 
     await tester.runAsync(state.disconnect);
   });
+
+  testWidgets('service tab lists groups and opens a guide', (tester) async {
+    final state = AppState(backupStore: MemoryBackupStore());
+    await state.setProfile('usa');
+    await tester.pumpWidget(ObdPulseApp(state: state));
+    await tester.tap(find.text('Servis'));
+    await tester.pumpAndSettle();
+    expect(find.text('Servis a nastavení'), findsOneWidget);
+    await tester.tap(find.text('Reset servisu oleje / inspekce'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('GM (Chevrolet'), findsOneWidget);
+    expect(find.text('Spustit funkci'), findsNothing);
+  });
 }
